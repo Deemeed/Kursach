@@ -1,61 +1,299 @@
 import os
 import shutil
+import platform
 from datetime import datetime
+import mimetypes
+import tempfile
+import subprocess
+from pathlib import Path
 
 
-def get_properties(path: str) -> dict:
-    info = os.stat(path)
-    return {
-        "path": path,
-        "is_dir": os.path.isdir(path),
-        "size": info.st_size,
-        "modified": datetime.fromtimestamp(info.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-    }
+def check_file_signature(filepath):
+
+    '''
+    Проверка наличия цифровой подписи
+    '''
+
+    try:
+        ext = Path(filepath).suffix.lower()
+        check_ext = {'.exe', '.dll', '.sys', '.msi', '.cab', '.ocx',
+                     '.ps1', '.psm1', '.psd1',
+                     '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+                     '.pdf', '.scr', '.vbs', '.js'}
+
+        if ext not in check_ext:
+            return None
+
+        if not os.path.exists(filepath):
+            return None
+
+        # PowerShell script
+        ps_command = f'''
+        try {{
+            $sig = Get-AuthenticodeSignature -FilePath "{filepath}" -ErrorAction Stop
+            if ($sig.Status -eq "Valid") {{
+                $signer = ""
+                if ($sig.SignerCertificate -and $sig.SignerCertificate.Subject) {{
+                    $subject = $sig.SignerCertificate.Subject
+                    if ($subject -match "CN=([^,]+)") {{
+                        $signer = $matches[1]
+                    }} else {{
+                        $signer = $subject
+                    }}
+                }}
+                Write-Output "VALID|$signer"
+            }} else {{
+                Write-Output "$($sig.Status)|"
+            }}
+        }} catch {{
+            Write-Output "ERROR|"
+        }}
+        '''
+
+        # скрытый запуск PowerShell
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        result = subprocess.run(
+            ["powershell", "-Command", ps_command],
+            capture_output=True,
+            text=True,
+            shell=True,
+            timeout=2,
+            startupinfo=startupinfo
+        )
+
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            if '|' in output:
+                status, signer = output.split('|', 1)
+                return {"status": status, "signer": signer.strip()}
+
+    except subprocess.TimeoutExpired:
+        return {"status": "Timeout", "signer": ""}
+    except Exception:
+        pass
+
+    return None
 
 
-def rename_item(old_path: str, new_name: str) -> str:
-    base_dir = os.path.dirname(old_path)
-    new_path = os.path.join(base_dir, new_name)
-    os.rename(old_path, new_path)
-    return new_path
+def open_item(path: str):
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)
+    except Exception as e:
+        raise Exception(f"Не удалось открыть {path}: {str(e)}")
 
 
-def copy_item(src: str, dst_dir: str) -> str:
-    name = os.path.basename(src)
-    dst_path = os.path.join(dst_dir, name)
+def copy_item(src: str, dst_dir: str):
+    try:
+        base_name = os.path.basename(src)
+        dst = os.path.join(dst_dir, base_name)
 
-    if os.path.exists(dst_path):
-        dst_path = dst_path + "_copy"
+        src_dir = os.path.dirname(src)
+        if src_dir == dst_dir:
+            return src
 
-    if os.path.isdir(src):
-        shutil.copytree(src, dst_path)
-    else:
-        shutil.copy2(src, dst_path)
+        if os.path.exists(dst):
+            name, ext = os.path.splitext(base_name)
+            counter = 1
+            while os.path.exists(dst):
+                dst = os.path.join(dst_dir, f"{name} ({counter}){ext}")
+                counter += 1
 
-    return dst_path
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
+        return dst
+    except Exception as e:
+        raise Exception(f"Ошибка при копировании {src}: {str(e)}")
+
+
+def move_item(src: str, dst_dir: str):
+    try:
+        dst = os.path.join(dst_dir, os.path.basename(src))
+
+        src_dir = os.path.dirname(src)
+        if src_dir == dst_dir:
+            return src
+
+        shutil.move(src, dst)
+        return dst
+    except Exception as e:
+        raise Exception(f"Ошибка при перемещении {src}: {str(e)}")
+
+
+def copy_items(paths: list[str], dst_dir: str):
+    for path in paths:
+        copy_item(path, dst_dir)
+
+
+def move_items(paths: list[str], dst_dir: str):
+    for path in paths:
+        move_item(path, dst_dir)
 
 
 def delete_item(path: str):
-    if os.path.isdir(path):
-        shutil.rmtree(path)
-    else:
-        os.remove(path)
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+    except Exception as e:
+        raise Exception(f"Ошибка при удалении {path}: {str(e)}")
 
 
-def create_folder(parent_dir: str, folder_name: str) -> str:
-    if not os.path.isdir(parent_dir):
-        raise NotADirectoryError(parent_dir)
-
-    new_path = os.path.join(parent_dir, folder_name)
-    counter = 1
-    base_new_path = new_path
-    while os.path.exists(new_path):
-        new_path = f"{base_new_path}_{counter}"
-        counter += 1
-
-    os.makedirs(new_path, exist_ok=True)
-    return new_path
+def rename_item(path: str, new_name: str):
+    try:
+        parent = os.path.dirname(path)
+        new_path = os.path.join(parent, new_name)
+        os.rename(path, new_path)
+        return new_path
+    except Exception as e:
+        raise Exception(f"Ошибка при переименовании {path}: {str(e)}")
 
 
-def normalize(path: str) -> str:
-    return os.path.abspath(path).replace("\\", "/")
+def get_properties(path: str) -> dict:
+    try:
+        stat = os.stat(path)
+
+        # Проверяем цифровую подпись
+        signature_info = ""
+        sig_result = check_file_signature(path)
+
+        if sig_result:
+            status = sig_result.get("status", "")
+            signer = sig_result.get("signer", "")
+
+            if status == "VALID":
+                if signer:
+                    # Обрезаем длинные названия
+                    if len(signer) > 50:
+                        signer = signer[:47] + "..."
+                    signature_info = f"Есть подпись: {signer}"
+                else:
+                    signature_info = "Есть цифровая подпись"
+            elif status == "NotSigned":
+                signature_info = "Нет цифровой подписи"
+            elif status in ["HashMismatch", "NotTrusted"]:
+                signature_info = "Недействительная подпись"
+
+        return {
+            "path": path,
+            "type": "Папка" if os.path.isdir(path) else "Файл",
+            "size": stat.st_size,
+            "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M"),
+            "signature": signature_info
+        }
+    except Exception as e:
+        raise Exception(f"Не удалось получить свойства {path}: {str(e)}")
+
+
+def get_file_preview(path: str):
+    try:
+        if not os.path.exists(path):
+            return "text", "Файл не существует"
+
+        if os.path.isdir(path):
+            file_count = 0
+            dir_count = 0
+            total_size = 0
+
+            for root, dirs, files in os.walk(path):
+                dir_count += len(dirs)
+                file_count += len(files)
+                for file in files:
+                    try:
+                        total_size += os.path.getsize(os.path.join(root, file))
+                    except:
+                        pass
+
+            text = f"📁 Папка\n\nФайлов: {file_count}\nПапок: {dir_count}\nОбщий размер: {total_size:,} байт"
+            return "text", text
+
+        _, ext = os.path.splitext(path.lower())
+
+        if ext in ['.txt', '.py', '.js', '.html', '.css', '.xml', '.json', '.md']:
+            try:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read(2000)
+                    return "text", f"📄 Текстовый файл\n\n{content}"
+            except:
+                return "text", f"📄 Текстовый файл (не удалось прочитать)"
+
+        elif ext == '.docx':
+            try:
+                import docx
+                doc = docx.Document(path)
+                text_content = []
+                for para in doc.paragraphs[:20]:
+                    if para.text.strip():
+                        text_content.append(para.text)
+                content = "\n".join(text_content)[:2000]
+                return "text", f"📝 Документ Word\n\n{content}"
+            except ImportError:
+                return "text", "📝 Документ Word (требуется python-docx)"
+            except:
+                return "text", f"📝 Документ Word (не удалось прочитать)"
+
+        elif ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp']:
+            try:
+                from PIL import Image
+                img = Image.open(path)
+                width, height = img.size
+                size_kb = os.path.getsize(path) // 1024
+
+                preview_size = (300, 300)
+                img.thumbnail(preview_size)
+
+                temp_dir = tempfile.gettempdir()
+                temp_path = os.path.join(temp_dir, f"preview_{os.path.basename(path)}")
+                img.save(temp_path, format=img.format if img.format else 'PNG')
+
+                info = f"🖼 Изображение\n\nРазрешение: {width}x{height}\nРазмер: {size_kb} KB"
+                return "image", (temp_path, info)
+            except ImportError:
+                return "text", f"🖼 Изображение {ext} (требуется Pillow)"
+            except:
+                return "text", f"🖼 Изображение (не удалось открыть)"
+
+        elif ext == '.pdf':
+            try:
+                import fitz
+                doc = fitz.open(path)
+
+                if len(doc) > 0:
+                    page = doc[0]
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+
+                    temp_dir = tempfile.gettempdir()
+                    temp_path = os.path.join(temp_dir, f"preview_pdf_{os.path.basename(path)}.png")
+                    pix.save(temp_path)
+
+                    info = f"📕 PDF документ\n\nСтраниц: {len(doc)}\nРазмер: {os.path.getsize(path) // 1024} KB"
+                    return "image", (temp_path, info)
+                else:
+                    return "text", "📕 PDF документ (пустой)"
+            except ImportError:
+                return "text", "📕 PDF документ (требуется PyMuPDF)"
+            except:
+                return "text", f"📕 PDF документ (не удалось открыть)"
+
+        else:
+            mime_type, _ = mimetypes.guess_type(path)
+            size = os.path.getsize(path)
+
+            if ext in ['.exe', '.dll', '.sys', '.msi']:
+                sig_result = check_file_signature(path)
+                if sig_result and sig_result.get("status") == "VALID":
+                    signer = sig_result.get("signer", "")
+                    if signer:
+                        return "text", f"📎 Исполняемый файл\n\nТип: {mime_type or 'неизвестный'}\nРазмер: {size:,} байт\nПодпись: {signer}"
+
+            return "text", f"📎 Файл\n\nТип: {mime_type or 'неизвестный'}\nРазмер: {size:,} байт"
+
+    except Exception as e:
+        return "text", f"Ошибка при предпросмотре: {str(e)}"
