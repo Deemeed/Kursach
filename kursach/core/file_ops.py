@@ -5,7 +5,7 @@ from datetime import datetime
 import mimetypes
 import tempfile
 import subprocess
-from pathlib import Path
+import json
 
 
 def check_file_signature(filepath):
@@ -14,68 +14,27 @@ def check_file_signature(filepath):
     Проверка наличия цифровой подписи
     '''
 
-    try:
-        ext = Path(filepath).suffix.lower()
-        check_ext = {'.exe', '.dll', '.sys', '.msi', '.cab', '.ocx',
-                     '.ps1', '.psm1', '.psd1',
-                     '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-                     '.pdf', '.scr', '.vbs', '.js'}
+    ps_command = (
+        f'Get-AuthenticodeSignature "{filepath}" | '
+        f'Select-Object @{{Name="Status"; Expression={{$_.Status.ToString()}}}}, '
+        f'@{{Name="SignerCertificate"; Expression={{$_.SignerCertificate.Subject}}}} | '
+        f'ConvertTo-Json'
+    )
 
-        if ext not in check_ext:
-            return None
+    result = subprocess.run(
+        ["powershell", "-Command", ps_command],
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        check=True
+    )
 
-        if not os.path.exists(filepath):
-            return None
+    if not result.stdout.strip():
+        return 0
 
-        # PowerShell script
-        ps_command = f'''
-        try {{
-            $sig = Get-AuthenticodeSignature -FilePath "{filepath}" -ErrorAction Stop
-            if ($sig.Status -eq "Valid") {{
-                $signer = ""
-                if ($sig.SignerCertificate -and $sig.SignerCertificate.Subject) {{
-                    $subject = $sig.SignerCertificate.Subject
-                    if ($subject -match "CN=([^,]+)") {{
-                        $signer = $matches[1]
-                    }} else {{
-                        $signer = $subject
-                    }}
-                }}
-                Write-Output "VALID|$signer"
-            }} else {{
-                Write-Output "$($sig.Status)|"
-            }}
-        }} catch {{
-            Write-Output "ERROR|"
-        }}
-        '''
+    data = json.loads(result.stdout)
 
-        # скрытый запуск PowerShell
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = subprocess.SW_HIDE
-
-        result = subprocess.run(
-            ["powershell", "-Command", ps_command],
-            capture_output=True,
-            text=True,
-            shell=True,
-            timeout=2,
-            startupinfo=startupinfo
-        )
-
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            if '|' in output:
-                status, signer = output.split('|', 1)
-                return {"status": status, "signer": signer.strip()}
-
-    except subprocess.TimeoutExpired:
-        return {"status": "Timeout", "signer": ""}
-    except Exception:
-        pass
-
-    return None
+    return f'Статус: {data.get('Status')}, Сертификат: {data.get('SignerCertificate')}'
 
 
 def open_item(path: str):
@@ -160,26 +119,12 @@ def get_properties(path: str) -> dict:
     try:
         stat = os.stat(path)
 
-        # Проверяем цифровую подпись
-        signature_info = ""
         sig_result = check_file_signature(path)
 
         if sig_result:
-            status = sig_result.get("status", "")
-            signer = sig_result.get("signer", "")
-
-            if status == "VALID":
-                if signer:
-                    # Обрезаем длинные названия
-                    if len(signer) > 50:
-                        signer = signer[:47] + "..."
-                    signature_info = f"Есть подпись: {signer}"
-                else:
-                    signature_info = "Есть цифровая подпись"
-            elif status == "NotSigned":
-                signature_info = "Нет цифровой подписи"
-            elif status in ["HashMismatch", "NotTrusted"]:
-                signature_info = "Недействительная подпись"
+            signature_info = sig_result
+        else:
+            signature_info = "Подпись отсутствует"
 
         return {
             "path": path,
@@ -234,8 +179,6 @@ def get_file_preview(path: str):
                         text_content.append(para.text)
                 content = "\n".join(text_content)[:2000]
                 return "text", f"📝 Документ Word\n\n{content}"
-            except ImportError:
-                return "text", "📝 Документ Word (требуется python-docx)"
             except:
                 return "text", f"📝 Документ Word (не удалось прочитать)"
 
@@ -253,12 +196,10 @@ def get_file_preview(path: str):
                 temp_path = os.path.join(temp_dir, f"preview_{os.path.basename(path)}")
                 img.save(temp_path, format=img.format if img.format else 'PNG')
 
-                info = f"🖼 Изображение\n\nРазрешение: {width}x{height}\nРазмер: {size_kb} KB"
+                info = f"🖼️ Изображение\n\nРазрешение: {width}x{height}\nРазмер: {size_kb} KB"
                 return "image", (temp_path, info)
-            except ImportError:
-                return "text", f"🖼 Изображение {ext} (требуется Pillow)"
             except:
-                return "text", f"🖼 Изображение (не удалось открыть)"
+                return "text", f"🖼️ Изображение (не удалось открыть)"
 
         elif ext == '.pdf':
             try:
@@ -277,8 +218,6 @@ def get_file_preview(path: str):
                     return "image", (temp_path, info)
                 else:
                     return "text", "📕 PDF документ (пустой)"
-            except ImportError:
-                return "text", "📕 PDF документ (требуется PyMuPDF)"
             except:
                 return "text", f"📕 PDF документ (не удалось открыть)"
 
@@ -288,10 +227,7 @@ def get_file_preview(path: str):
 
             if ext in ['.exe', '.dll', '.sys', '.msi']:
                 sig_result = check_file_signature(path)
-                if sig_result and sig_result.get("status") == "VALID":
-                    signer = sig_result.get("signer", "")
-                    if signer:
-                        return "text", f"📎 Исполняемый файл\n\nТип: {mime_type or 'неизвестный'}\nРазмер: {size:,} байт\nПодпись: {signer}"
+                return "text", f"📎 Исполняемый файл\n\nТип: {mime_type or 'неизвестный'}\nРазмер: {size:,} байт\nПодпись: {sig_result}"
 
             return "text", f"📎 Файл\n\nТип: {mime_type or 'неизвестный'}\nРазмер: {size:,} байт"
 

@@ -1,8 +1,7 @@
 from PyQt6.QtWidgets import QTreeView, QMenu, QApplication, QMessageBox
-from PyQt6.QtGui import QFileSystemModel, QDrag, QAction
+from PyQt6.QtGui import QFileSystemModel, QDrag
 from PyQt6.QtCore import QDir, Qt, QMimeData, QUrl
 import os
-import shutil
 
 from kursach.core.file_ops import open_item
 
@@ -29,10 +28,9 @@ class FilePanel(QTreeView):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
 
-        # Настраиваем ширину столбцов
         self.setColumnWidth(0, 250)
-        self.setColumnWidth(1, 50)
-        self.setColumnWidth(2, 50)
+        self.setColumnWidth(1, 100)
+        self.setColumnWidth(2, 100)
         self.setColumnWidth(3, 100)
 
     def set_directory(self, path: str):
@@ -186,9 +184,3 @@ class FilePanel(QTreeView):
         main_window = self.window()
         if hasattr(main_window, 'show_preview'):
             main_window.show_preview()
-
-    def keyPressEvent(self, event):
-        if event.modifiers() == self.keyboardModifiers().ControlModifier and event.key() == 86:
-            self.paste_from_clipboard()
-        else:
-            super().keyPressEvent(event)

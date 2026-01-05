@@ -1,11 +1,11 @@
 import os
 import hashlib
+
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QListWidget,
     QMessageBox, QCheckBox, QLabel
 )
-from PyQt6.QtCore import QTimer
 
 
 class SearchDialog(QDialog):
@@ -65,8 +65,6 @@ class SearchDialog(QDialog):
 
         self.input.returnPressed.connect(self.search_by_name)
 
-        self.status_timer = QTimer()
-        self.status_timer.timeout.connect(self.update_status)
 
     def search_by_name(self):
         self.duplicate_mode = False
@@ -142,8 +140,6 @@ class SearchDialog(QDialog):
     def _find_duplicates_simple(self, directory):
         files_by_size = {}
 
-        walk_dir = directory if self.chk_subfolders.isChecked() else [directory]
-
         for root, dirs, filenames in os.walk(directory):
             for filename in filenames:
                 try:
@@ -168,8 +164,8 @@ class SearchDialog(QDialog):
                     for filepath in filepaths:
                         try:
                             with open(filepath, 'rb') as f:
-                                # первые 4KB
-                                first_bytes = f.read(4096)
+                                # первый 1KB
+                                first_bytes = f.read(1024)
                                 file_hash = hashlib.md5(first_bytes).hexdigest()
 
                                 if file_hash not in hash_groups:
@@ -184,7 +180,32 @@ class SearchDialog(QDialog):
                 else:
                     potential_duplicates.append(filepaths)
 
-        return potential_duplicates
+        duplicates = []
+
+        for filepaths in potential_duplicates:
+            if len(filepaths) > 1:
+                if self.chk_by_content.isChecked():
+                    full_hash_duplicates = {}
+                    for path in filepaths:
+                        try:
+                            with open(path, 'rb') as f:
+                                full_bites = f.read()
+                                full_hash = hashlib.sha256(full_bites).hexdigest()
+
+                                if full_hash not in full_hash_duplicates:
+                                    full_hash_duplicates[full_hash] = []
+                                full_hash_duplicates[full_hash].append(path)
+                        except:
+                            continue
+
+                    for full_hash_group in full_hash_duplicates.values():
+                        if len(full_hash_group) > 1:
+                            duplicates.append(full_hash_group)
+
+                else:
+                    duplicates.append(filepaths)
+
+        return duplicates
 
     def update_status(self):
         current_text = self.status_label.text()
@@ -196,20 +217,16 @@ class SearchDialog(QDialog):
     def goto_selected(self):
         item = self.list.currentItem()
         if item:
-            text = item.text()
+            filepath = item.text()
 
-            if "──────────" in text:
+            if "──────────" in filepath:
                 return
 
-            if text.startswith("  📄 "):
-                text = text[5:]
+            if filepath.startswith("  📄 "):
+                filepath = filepath[4:]
 
-            if os.path.exists(text):
-                self.selected_path = text
+            if os.path.exists(filepath):
+                self.selected_path = filepath
                 self.accept()
             else:
                 QMessageBox.warning(self, "Ошибка", "Файл не найден")
-
-    def closeEvent(self, event):
-        self.status_timer.stop()
-        super().closeEvent(event)

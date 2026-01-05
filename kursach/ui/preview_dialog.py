@@ -1,8 +1,8 @@
 import os
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QLabel, QScrollArea, QWidget
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QLabel, QScrollArea
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
-from core.file_ops import get_file_preview
+from kursach.core.file_ops import get_file_preview
 
 
 class PreviewDialog(QDialog):
@@ -18,17 +18,14 @@ class PreviewDialog(QDialog):
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
-        # Заголовок
         self.title_label = QLabel(f"📄 {self.file_path}")
         layout.addWidget(self.title_label)
 
-        # Область для текста
         self.text_preview = QTextEdit()
         self.text_preview.setReadOnly(True)
         self.text_preview.setVisible(False)
         layout.addWidget(self.text_preview)
 
-        # Область для изображения
         self.scroll_area = QScrollArea()
         self.scroll_area.setVisible(False)
         self.scroll_area.setWidgetResizable(True)
@@ -39,7 +36,6 @@ class PreviewDialog(QDialog):
 
         layout.addWidget(self.scroll_area)
 
-        # Область для информации
         self.info_label = QLabel()
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
@@ -60,10 +56,8 @@ class PreviewDialog(QDialog):
 
                 image_path, info = preview_data
 
-                # Загружаем изображение
                 pixmap = QPixmap(image_path)
                 if not pixmap.isNull():
-                    # Масштабируем если слишком большое
                     max_size = 700
                     if pixmap.width() > max_size or pixmap.height() > max_size:
                         pixmap = pixmap.scaled(max_size, max_size,
@@ -82,9 +76,7 @@ class PreviewDialog(QDialog):
             self.text_preview.setText(f"Ошибка при загрузке предпросмотра:\n{str(e)}")
 
     def closeEvent(self, event):
-        """Очищаем временные файлы при закрытии"""
         try:
-            # Удаляем временные файлы предпросмотра
             temp_dir = os.path.join(os.environ.get('TEMP', '/tmp'), '')
             for file in os.listdir(temp_dir):
                 if file.startswith('preview_'):

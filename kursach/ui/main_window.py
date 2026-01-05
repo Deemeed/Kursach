@@ -1,5 +1,4 @@
 import os
-import traceback
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QToolBar, QLabel, QPushButton,
@@ -29,17 +28,17 @@ class MainWindow(QMainWindow):
 
         self.path_label = QLabel()
 
-        toolbar.addAction(QAction("←", self, triggered=self.go_back))
-        toolbar.addAction(QAction("Создать", self, triggered=self.create_item))
-        toolbar.addAction(QAction("Удалить", self, triggered=self.delete_item))
-        toolbar.addAction(QAction("Переименовать", self, triggered=self.rename_item))
-        toolbar.addAction(QAction("Копировать", self, triggered=self.copy_to_clipboard))
-        toolbar.addAction(QAction("Свойства", self, triggered=self.show_properties))
-        toolbar.addAction(QAction("Поиск", self, triggered=self.open_search))
+        toolbar.addAction(QAction("⬅️", self, triggered=self.go_back, toolTip='Назад'))
+        toolbar.addAction(QAction("Создать ➕", self, triggered=self.create_item, toolTip='Создать'))
+        toolbar.addAction(QAction("🗑️", self, triggered=self.delete_item, toolTip='Удалить'))
+        toolbar.addAction(QAction("✏️", self, triggered=self.rename_item, toolTip='Переименовать'))
+        toolbar.addAction(QAction("📋", self, triggered=self.copy_to_clipboard, toolTip='Копировать'))
+        toolbar.addAction(QAction("ℹ️", self, triggered=self.show_properties, toolTip='Свойства'))
+        toolbar.addAction(QAction("🔍", self, triggered=self.open_search, toolTip='Поиск'))
         toolbar.addSeparator()
         toolbar.addWidget(self.path_label)
 
-        # Две файлов
+        # Две панели файлов
         self.left_panel = FilePanel(os.path.expanduser("~"))
         self.right_panel = FilePanel("D:/" if os.path.exists("D:/") else os.path.expanduser("~"))
 
@@ -48,9 +47,9 @@ class MainWindow(QMainWindow):
 
         # Средняя плашка
         middle = QVBoxLayout()
-        btn_copy = QPushButton("▶")
-        btn_move = QPushButton("↔")
-        btn_preview = QPushButton("p")
+        btn_copy = QPushButton("🔄")
+        btn_move = QPushButton("🔁")
+        btn_preview = QPushButton("📄")
         btn_copy.clicked.connect(self.copy_between)
         btn_move.clicked.connect(self.move_between)
         btn_preview.clicked.connect(self.show_preview)
@@ -58,6 +57,10 @@ class MainWindow(QMainWindow):
         btn_copy.setFixedWidth(30)
         btn_move.setFixedWidth(30)
         btn_preview.setFixedWidth(30)
+
+        btn_copy.setToolTip("Копировать в другую панель")
+        btn_move.setToolTip("Переместить в другую панель")
+        btn_preview.setToolTip("Предпросмотр файла")
 
         middle.addStretch()
         middle.addWidget(btn_copy)
@@ -87,7 +90,7 @@ class MainWindow(QMainWindow):
 
             self.active_panel = panel
             self.path_label.setText(panel.current_path())
-            panel.setStyleSheet("border: 2px solid #0078d7;")
+            panel.setStyleSheet("border: 1px solid #ffffff; background-color: transparent; border-radius: 5px;")
 
     def passive_panel(self):
         return self.right_panel if self.active_panel == self.left_panel else self.left_panel
@@ -253,9 +256,3 @@ class MainWindow(QMainWindow):
                     self.active_panel.set_directory(target_dir)
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось выполнить поиск: {str(e)}")
-
-    def keyPressEvent(self, event):
-        if event.modifiers() == self.keyboardModifiers().ControlModifier and event.key() == 86:
-            self.paste_from_clipboard()
-        else:
-            super().keyPressEvent(event)

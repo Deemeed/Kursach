@@ -5,23 +5,20 @@ from PyQt6.QtCore import Qt
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Вход в файловый менеджер")
+        self.setWindowTitle("Вход в программу")
         self.setFixedSize(300, 150)
 
         layout = QVBoxLayout(self)
 
-        # Метка
         label = QLabel("Введите пароль:")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
 
-        # Поле для пароля
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.returnPressed.connect(self.check_password)
         layout.addWidget(self.password_input)
 
-        # Кнопка
         self.login_button = QPushButton("Войти")
         self.login_button.clicked.connect(self.check_password)
         layout.addWidget(self.login_button)
